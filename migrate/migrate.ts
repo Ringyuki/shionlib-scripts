@@ -10,36 +10,51 @@ import { FileStatus } from './interfaces/file.interface'
 
 const process = async (file: File) => {
   const { items, platform, game_id } = file
-  for (const item of items) {
-    const { o_key, o_file_name } = item
-    const archivePath = path.join(DOWNLOAD_DIR, o_file_name)
-    const extractedName = stripExt(o_file_name, { all: true })
-    const extractedPath = path.join(EXTRACTED_DIR, extractedName)
-    const compressedPath = path.join(COMPRESSED_DIR, o_file_name)
+  if (!items.length) return
 
-    try {
-      updateFileItemStatus(file, item, { status: FileStatus.PROCESSING })
+  const firstName = items[0].o_file_name
+  const extractedName = stripExt(firstName, { all: true })
+  const extractedPath = path.join(EXTRACTED_DIR, extractedName)
 
-      const isDownloaded = hasFile(archivePath)
-      const isExtracted = hasFile(extractedPath)
-      const isCompressed = hasFile(compressedPath)
+  const selectPrimary = (names: string[]): string => {
+    const has = (re: RegExp) => names.find((n) => re.test(n))
+    return (has(/\.part0*1\.rar$/i) ||
+      has(/\.rar$/i) ||
+      has(/\.(7z|zip)\.0*1$/i) ||
+      names.slice().sort((a, b) => a.localeCompare(b))[0]) as string
+  }
+  const names = items.map((i) => i.o_file_name)
+  const primaryName = selectPrimary(names)
 
-      if (!isCompressed) {
-        if (!isExtracted) {
-          if (!isDownloaded) {
-            await startDownload(o_key, o_file_name)
-          }
-          await start7zip({ mode: 'extract', archive: archivePath })
-        }
-        await start7zip({ mode: 'compress', src: extractedPath })
+  try {
+    for (const it of items) updateFileItemStatus(file, it, { status: FileStatus.PROCESSING })
+
+    for (const it of items) {
+      const p = path.join(DOWNLOAD_DIR, it.o_file_name)
+      if (!hasFile(p)) {
+        await startDownload(it.o_key, it.o_file_name)
       }
+    }
 
-      const result = await uploadFile(compressedPath, o_file_name, game_id, platform)
-      if (hasFile(compressedPath)) deleteFile(compressedPath)
-      if (hasFile(archivePath)) deleteFile(archivePath)
-      if (hasFile(extractedPath)) deleteFile(extractedPath)
+    if (!hasFile(extractedPath)) {
+      const primaryArchivePath = path.join(DOWNLOAD_DIR, primaryName)
+      await start7zip({ mode: 'extract', archive: primaryArchivePath })
+    }
 
-      updateFileItemStatus(file, item, {
+    const compressedOut = await start7zip({ mode: 'compress', src: extractedPath })
+    const outName = path.basename(compressedOut)
+
+    const result = await uploadFile(compressedOut, outName, game_id, platform)
+
+    if (hasFile(compressedOut)) deleteFile(compressedOut)
+    for (const it of items) {
+      const p = path.join(DOWNLOAD_DIR, it.o_file_name)
+      if (hasFile(p)) deleteFile(p)
+    }
+    if (hasFile(extractedPath)) deleteFile(extractedPath)
+
+    for (const it of items) {
+      updateFileItemStatus(file, it, {
         status: FileStatus.COMPLETED,
         n_key: result.s3Key,
         n_file_name: result.file_name,
@@ -47,11 +62,11 @@ const process = async (file: File) => {
         n_file_hash: result.file_hash,
         n_file_content_type: result.file_content_type,
       })
-    } catch (err) {
-      console.error('[migrate] Failed to process file item:', item.o_key, item.game_id)
-      updateFileItemStatus(file, item, { status: FileStatus.FAILED })
-      throw err
     }
+  } catch (err) {
+    console.error('[migrate] Failed to process file group:', game_id, platform, err)
+    for (const it of items) updateFileItemStatus(file, it, { status: FileStatus.FAILED })
+    throw err
   }
 }
 
