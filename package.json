@@ -1,0 +1,31 @@
+{
+  "name": "scripts",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "add:game": "pnpm exec tsx --env-file=.env create/main.ts",
+    "migrate": "pnpm exec tsx --env-file=.env migrate/main.ts",
+    "migrate:start": "pnpm exec tsx --env-file=.env migrate/migrate.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.10.0",
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.917.0",
+    "@aws-sdk/lib-storage": "^3.917.0",
+    "@types/cli-progress": "^3.11.6",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^24.9.1",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "cli-progress": "^3.12.0",
+    "mime-types": "^3.0.1"
+  }
+}
