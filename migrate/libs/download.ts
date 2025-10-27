@@ -1,6 +1,7 @@
 import http from 'http'
 import fs from 'fs'
 import path from 'path'
+import { spawnSync } from 'child_process'
 import { SingleBar, Presets } from 'cli-progress'
 import { DOWNLOAD_DIR } from '../constants/dirs'
 
@@ -134,6 +135,66 @@ const getUrl = async (key: string): Promise<string> => {
   return `${BUCKET1_URL}${key}`
 }
 
+/** ===================================================== */
+const debugDumpOnError = async (gid: string, url: string, savePath: string, key: string) => {
+  console.error('\n[aria2][debug] ===== ERROR DIAGNOSTICS BEGIN =====')
+
+  try {
+    const [st, files, servers, gstat, ver] = await Promise.all([
+      rpcCall<any>('aria2.tellStatus', [gid]).catch((e) => ({ error: String(e) })),
+      rpcCall<any>('aria2.getFiles', [gid]).catch(() => null),
+      rpcCall<any>('aria2.getServers', [gid]).catch(() => null),
+      rpcCall<any>('aria2.getGlobalStat').catch(() => null),
+      rpcCall<any>('aria2.getVersion').catch(() => null),
+    ])
+    console.error('[aria2][debug] URL     :', url)
+    console.error('[aria2][debug] Save    :', savePath)
+    console.error('[aria2][debug] key     :', key)
+    console.error('[aria2][debug] tellStatus:', JSON.stringify(st?.result ?? st, null, 2))
+    if (files) console.error('[aria2][debug] getFiles  :', JSON.stringify(files.result, null, 2))
+    if (servers)
+      console.error('[aria2][debug] getServers:', JSON.stringify(servers.result, null, 2))
+    if (gstat) console.error('[aria2][debug] globalStat:', JSON.stringify(gstat.result, null, 2))
+    if (ver) console.error('[aria2][debug] version   :', JSON.stringify(ver.result, null, 2))
+  } catch (e) {
+    console.error('[aria2][debug] failed to collect aria2 diagnostics:', e)
+  }
+
+  try {
+    const h = await fetch(url, { method: 'HEAD' })
+    console.error('[aria2][debug] HEAD     :', h.status, h.statusText)
+    const keys = [
+      'content-length',
+      'accept-ranges',
+      'content-type',
+      'server',
+      'via',
+      'date',
+      'cf-cache-status',
+    ]
+    const hdr: Record<string, string> = {}
+    for (const k of keys) {
+      const v = h.headers.get(k)
+      if (v) hdr[k] = v
+    }
+    console.error('[aria2][debug] HEAD hdr :', hdr)
+  } catch (e) {
+    console.error('[aria2][debug] HEAD failed:', e)
+  }
+
+  try {
+    const df = spawnSync('df', ['-Pk', savePath], { encoding: 'utf8' })
+    if (df.status === 0) {
+      console.error('[aria2][debug] df -Pk  :\n' + df.stdout.trim())
+    } else {
+      console.error('[aria2][debug] df error:', df.stderr?.trim() || df.status)
+    }
+  } catch (e) {}
+
+  console.error('[aria2][debug] ====== ERROR DIAGNOSTICS END ======\n')
+}
+/** ===================================================== */
+
 const start = async (key: string, outName: string): Promise<boolean> => {
   ensureDirSync(DOWNLOAD_DIR)
   const url = await getUrl(key)
@@ -203,6 +264,7 @@ const start = async (key: string, outName: string): Promise<boolean> => {
         bar.stop()
         const msg = s.errorMessage ? ` - ${s.errorMessage}` : ''
         console.error(`Download ${st}${msg}`)
+        await debugDumpOnError(gid, url, savePath, key)
         return false
       }
       await new Promise((r) => setTimeout(r, pollInterval))
@@ -210,6 +272,9 @@ const start = async (key: string, outName: string): Promise<boolean> => {
   } catch (err) {
     if (bar.isActive) bar.stop()
     console.error(err)
+    try {
+      await debugDumpOnError(gid, url, savePath, key)
+    } catch {}
     return false
   }
 }
