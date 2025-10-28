@@ -1,10 +1,10 @@
 import { start as startDownload } from './libs/download'
 import { start as start7zip } from './libs/7zip'
-import { readFile, deleteFile, hasFile, updateItemInFinalFiles } from './utils/file'
+import { readFile, deleteFile, hasFile, updateItemInFinalFiles, selectPrimary } from './utils/file'
 import { File, FileItem } from './interfaces/file.interface'
 import path from 'path'
 import { uploadFile } from './libs/upload'
-import { stripExt } from './utils/strip-ext'
+import { stripArchiveSuffix } from './helpers/text.helper'
 import { DOWNLOAD_DIR, EXTRACTED_DIR, COMPRESSED_DIR } from './constants/dirs'
 import { FileStatus } from './interfaces/file.interface'
 
@@ -13,16 +13,9 @@ const process = async (file: File) => {
   if (!items.length) return
 
   const firstName = items[0].o_file_name
-  const extractedName = stripExt(firstName, { all: true })
+  const extractedName = stripArchiveSuffix(firstName)
   const extractedPath = path.join(EXTRACTED_DIR, extractedName)
 
-  const selectPrimary = (names: string[]): string => {
-    const has = (re: RegExp) => names.find((n) => re.test(n))
-    return (has(/\.part0*1\.rar$/i) ||
-      has(/\.rar$/i) ||
-      has(/\.(7z|zip)\.0*1$/i) ||
-      names.slice().sort((a, b) => a.localeCompare(b))[0]) as string
-  }
   const names = items.map((i) => i.o_file_name)
   const primaryName = selectPrimary(names)
 

@@ -37,6 +37,14 @@ const deleteFile = (p: string) => {
   }
 }
 
+const selectPrimary = (names: string[]): string => {
+  const has = (re: RegExp) => names.find((n) => re.test(n))
+  return (has(/\.part0*1\.rar$/i) ||
+    has(/\.rar$/i) ||
+    has(/\.(7z|zip)\.0*1$/i) ||
+    names.slice().sort((a, b) => a.localeCompare(b))[0]) as string
+}
+
 const updateItemInFinalFiles = (
   match: (item: FileItem) => boolean,
   updater: (item: FileItem) => void,
@@ -56,4 +64,4 @@ const updateItemInFinalFiles = (
   }
 }
 
-export { saveFile, readFile, hasFile, deleteFile, updateItemInFinalFiles }
+export { saveFile, readFile, hasFile, deleteFile, updateItemInFinalFiles, selectPrimary }

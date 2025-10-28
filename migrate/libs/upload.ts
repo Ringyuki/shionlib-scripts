@@ -91,6 +91,8 @@ const uploadFile = async (
   game_id: number,
   platform: 'pc' | 'pe',
 ): Promise<UploadResult> => {
+  console.log('[upload] Uploading file:', path, file_name, game_id, platform)
+  console.log('[upload] Hashing file:', path)
   const file_hash = await hash(path)
   const file_content_type = mime.lookup(path) || ''
   const file_size = fs.statSync(path).size

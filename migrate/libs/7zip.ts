@@ -6,7 +6,7 @@ import {
   EXTRACTED_DIR as EXTRACT_DIR_BASE,
   COMPRESSED_DIR as OUTPUT_DIR_BASE,
 } from '../constants/dirs'
-import { stripExt } from '../utils/strip-ext'
+import { stripArchiveSuffix } from '../helpers/text.helper'
 
 const DEFAULT_FORMAT: '7z' | 'zip' = '7z'
 const COMPRESSION_LEVEL = '1'
@@ -105,7 +105,9 @@ const start = async (options: StartOptions): Promise<string> => {
     const { archive } = options
     if (!fs.existsSync(archive)) throw new Error(`Archive not found: ${archive}`)
 
-    const name = stripExt(path.basename(archive), { all: true })
+    // Only strip archive & multipart suffixes, preserve dots in the base name (e.g. D.C.II P.C)
+    const base = path.basename(archive)
+    const name = stripArchiveSuffix(base)
     const dest = path.resolve(options.destDir ?? path.join(EXTRACT_DIR_BASE, name))
     ensureDir(dest)
 
