@@ -31,8 +31,20 @@ const process = async (file: File) => {
 
     for (const it of items) {
       const p = path.join(DOWNLOAD_DIR, it.o_file_name)
-      if (!hasFile(p)) {
-        await startDownload(it.o_key, it.o_file_name)
+      const needDownload = hasFile(`${p}.aria2`) || !hasFile(p)
+      if (needDownload) {
+        let retryCount = 0
+        const maxRetries = 3
+        while (retryCount < maxRetries) {
+          try {
+            await startDownload(it.o_key, it.o_file_name)
+            break
+          } catch (err) {
+            console.error('[migrate] Failed to download file:', it.o_key, it.o_file_name, err)
+            updateFileItemStatus(file, it, { status: FileStatus.FAILED })
+            throw err
+          }
+        }
       }
     }
 
