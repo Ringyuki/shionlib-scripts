@@ -6,6 +6,7 @@ import {
   EXTRACTED_DIR as EXTRACT_DIR_BASE,
   COMPRESSED_DIR as OUTPUT_DIR_BASE,
 } from '../constants/dirs'
+import { stripExt } from '../utils/strip-ext'
 
 const DEFAULT_FORMAT: '7z' | 'zip' = '7z'
 const COMPRESSION_LEVEL = '1'
@@ -23,11 +24,6 @@ export type StartOptions =
 
 const ensureDir = (p: string) => {
   fs.mkdirSync(p, { recursive: true })
-}
-
-const basenameNoExt = (p: string) => {
-  const b = path.basename(p)
-  return b.replace(/\.(7z|zip|tar|tgz|tar\.gz)$/i, '')
 }
 
 const resolve7zBinary = (): string => {
@@ -109,7 +105,7 @@ const start = async (options: StartOptions): Promise<string> => {
     const { archive } = options
     if (!fs.existsSync(archive)) throw new Error(`Archive not found: ${archive}`)
 
-    const name = basenameNoExt(archive)
+    const name = stripExt(archive, { all: true })
     const dest = path.resolve(options.destDir ?? path.join(EXTRACT_DIR_BASE, name))
     ensureDir(dest)
 
