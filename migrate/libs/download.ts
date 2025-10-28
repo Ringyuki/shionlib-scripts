@@ -105,6 +105,10 @@ const addDownload = async (
     'max-connection-per-server': String(mps),
     'min-split-size': minSplit,
     continue: 'true',
+    'auto-file-renaming': 'false',
+    'allow-overwrite': 'true',
+    'retry-wait': '2',
+    'max-tries': '8',
   }
   const r: any = await rpcCall('aria2.addUri', [[url], opts])
   return r.result as string // gid
@@ -336,7 +340,7 @@ const start = async (
   options: StartOptions = {},
 ): Promise<boolean> => {
   const retries = options.retries ?? 3
-  const backoffMs = options.backoffMs ?? 2000
+  const backoffMs = options.backoffMs ?? 60000
   const stallTimeoutMs = options.stallTimeoutMs ?? 120000
 
   const opts: Required<StartOptions> = { retries, backoffMs, stallTimeoutMs }
