@@ -224,6 +224,32 @@ const verifyFileIntegrity = (savePath: string, expectedSize?: number): void => {
   }
 }
 
+const prepareTargetForDownload = (savePath: string) => {
+  const ctrlPath = `${savePath}.aria2`
+  const fileExists = fs.existsSync(savePath)
+  const ctrlExists = fs.existsSync(ctrlPath)
+
+  // If file exists but aria2 control file is missing, remove the stale file to avoid aria2 abort
+  if (fileExists && !ctrlExists) {
+    try {
+      fs.unlinkSync(savePath)
+      console.warn(`[aria2] Removed existing file without control: ${savePath}`)
+    } catch (e) {
+      throw new Error(`Failed to remove existing file before download: ${savePath} - ${e}`)
+    }
+  }
+
+  // If control file exists but data file is missing, remove stale control file
+  if (!fileExists && ctrlExists) {
+    try {
+      fs.unlinkSync(ctrlPath)
+      console.warn(`[aria2] Removed stale control file without data: ${ctrlPath}`)
+    } catch (e) {
+      throw new Error(`Failed to remove stale control file: ${ctrlPath} - ${e}`)
+    }
+  }
+}
+
 const downloadOnce = async (
   key: string,
   outName: string,
@@ -240,6 +266,8 @@ const downloadOnce = async (
   console.log(`[aria2] Start download`)
   console.log(`  URL : ${url}`)
   console.log(`  Save: ${savePath}`)
+
+  prepareTargetForDownload(savePath)
 
   const gid = await addDownload(url, { dir: DOWNLOAD_DIR, out: outName })
 
