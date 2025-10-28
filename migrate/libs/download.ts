@@ -127,6 +127,50 @@ const tellStatus = async (gid: string): Promise<Aria2TellStatus> => {
   return r.result as Aria2TellStatus
 }
 
+// Try to find an existing aria2 task that is already downloading to savePath
+const findExistingTaskByPath = async (
+  savePath: string,
+): Promise<{ gid: string; status: string } | null> => {
+  try {
+    const [active, waiting] = await Promise.all([
+      rpcCall<any>('aria2.tellActive').catch(() => ({ result: [] })),
+      rpcCall<any>('aria2.tellWaiting', [0, 1000]).catch(() => ({ result: [] })),
+    ])
+
+    const lists: any[] = [...(active.result || []), ...(waiting.result || [])]
+    for (const it of lists) {
+      const files = it.files || []
+      for (const f of files) {
+        if (f.path === savePath) {
+          return { gid: it.gid, status: it.status }
+        }
+      }
+    }
+  } catch {}
+  return null
+}
+
+const forceStopAndCleanup = async (gid: string) => {
+  try {
+    await rpcCall('aria2.forcePause', [gid]).catch(() => null)
+    await rpcCall('aria2.forceRemove', [gid]).catch(() => null)
+  } catch {}
+  try {
+    await rpcCall('aria2.removeDownloadResult', [gid]).catch(() => null)
+  } catch {}
+}
+
+const softRecoverFromStall = async (gid: string): Promise<boolean> => {
+  try {
+    await rpcCall('aria2.forcePause', [gid])
+    await new Promise((r) => setTimeout(r, 300))
+    await rpcCall('aria2.unpause', [gid])
+    return true
+  } catch {
+    return false
+  }
+}
+
 const ensureDirSync = (dir: string) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 }
@@ -267,9 +311,16 @@ const downloadOnce = async (
   console.log(`  URL : ${url}`)
   console.log(`  Save: ${savePath}`)
 
-  prepareTargetForDownload(savePath)
-
-  const gid = await addDownload(url, { dir: DOWNLOAD_DIR, out: outName })
+  // Try reuse existing task if any
+  let gid: string
+  const existing = await findExistingTaskByPath(savePath)
+  if (existing) {
+    gid = existing.gid
+  } else {
+    // Only cleanup local target when no active/waiting task holds it
+    prepareTargetForDownload(savePath)
+    gid = await addDownload(url, { dir: DOWNLOAD_DIR, out: outName })
+  }
 
   const bar = new SingleBar(
     {
@@ -293,6 +344,7 @@ const downloadOnce = async (
   const pollInterval = 500
   let lastProgressBytes = 0
   let lastProgressAt = Date.now()
+  let stallSoftRetries = 0
   try {
     while (true) {
       const s = await tellStatus(gid)
@@ -318,7 +370,20 @@ const downloadOnce = async (
       } else {
         const now = Date.now()
         if (now - lastProgressAt > opts.stallTimeoutMs) {
-          throw new Error(`Download stalled for ${(opts.stallTimeoutMs / 1000).toFixed(0)}s`)
+          // soft recover first
+          if (stallSoftRetries < 2) {
+            stallSoftRetries++
+            bar.update(Math.min(doneBytes, total), {
+              speed: formatBytes(speed),
+              state: `stall-recover-${stallSoftRetries}`,
+              done: formatBytes(doneBytes),
+              total: totalBytes > 0 ? formatBytes(totalBytes) : 'unknown',
+            })
+            await softRecoverFromStall(gid)
+            lastProgressAt = Date.now()
+          } else {
+            throw new Error(`Download stalled for ${(opts.stallTimeoutMs / 1000).toFixed(0)}s`)
+          }
         }
       }
 
@@ -343,7 +408,7 @@ const downloadOnce = async (
         console.error(`Download ${st}${msg}`)
         await debugDumpOnError(gid, url, savePath, key)
         try {
-          await rpcCall('aria2.removeDownloadResult', [gid])
+          await forceStopAndCleanup(gid)
         } catch {}
         throw new Error(`aria2 status: ${st}${msg}`)
       }
@@ -356,7 +421,7 @@ const downloadOnce = async (
       await debugDumpOnError(gid, url, savePath, key)
     } catch {}
     try {
-      await rpcCall('aria2.removeDownloadResult', [gid])
+      await forceStopAndCleanup(gid)
     } catch {}
     throw err
   }
@@ -369,7 +434,7 @@ const start = async (
 ): Promise<boolean> => {
   const retries = options.retries ?? 3
   const backoffMs = options.backoffMs ?? 60000
-  const stallTimeoutMs = options.stallTimeoutMs ?? 120000
+  const stallTimeoutMs = options.stallTimeoutMs ?? 1200000
 
   const opts: Required<StartOptions> = { retries, backoffMs, stallTimeoutMs }
 
@@ -383,6 +448,14 @@ const start = async (
       if (attempt >= retries) {
         throw e
       }
+      // Before retrying, ensure no active task is still holding the file
+      try {
+        const savePath = path.join(DOWNLOAD_DIR, outName)
+        const existing = await findExistingTaskByPath(savePath)
+        if (existing) {
+          await forceStopAndCleanup(existing.gid)
+        }
+      } catch {}
       const delay = backoffMs * Math.pow(2, attempt - 1)
       console.warn(`[aria2] attempt ${attempt} failed, retrying in ${Math.round(delay / 1000)}s...`)
       await sleep(delay)
