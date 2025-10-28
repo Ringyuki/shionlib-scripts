@@ -105,7 +105,7 @@ const start = async (options: StartOptions): Promise<string> => {
     const { archive } = options
     if (!fs.existsSync(archive)) throw new Error(`Archive not found: ${archive}`)
 
-    const name = stripExt(archive, { all: true })
+    const name = stripExt(path.basename(archive), { all: true })
     const dest = path.resolve(options.destDir ?? path.join(EXTRACT_DIR_BASE, name))
     ensureDir(dest)
 
