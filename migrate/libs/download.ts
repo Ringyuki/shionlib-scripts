@@ -195,12 +195,41 @@ const debugDumpOnError = async (gid: string, url: string, savePath: string, key:
 }
 /** ===================================================== */
 
-const start = async (key: string, outName: string): Promise<boolean> => {
+type StartOptions = {
+  retries?: number
+  backoffMs?: number // base backoff in ms (exponential)
+  stallTimeoutMs?: number // no progress for this long => treat as stall
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+const verifyFileIntegrity = (savePath: string, expectedSize?: number): void => {
+  if (!fs.existsSync(savePath)) {
+    throw new Error(`Downloaded file missing: ${savePath}`)
+  }
+  try {
+    const st = fs.statSync(savePath)
+    if (expectedSize && expectedSize > 0 && st.size !== expectedSize) {
+      throw new Error(`Size mismatch: got ${st.size}, expected ${expectedSize}`)
+    }
+    if (st.size <= 0) {
+      throw new Error(`Downloaded file is empty: ${savePath}`)
+    }
+  } catch (e) {
+    throw e
+  }
+}
+
+const downloadOnce = async (
+  key: string,
+  outName: string,
+  opts: Required<StartOptions>,
+): Promise<void> => {
   ensureDirSync(DOWNLOAD_DIR)
   const url = await getUrl(key)
   if (!url) {
     console.error(`[aria2] Failed to get URL for key: ${key}`)
-    return false
+    throw new Error('Failed to get URL')
   }
 
   const savePath = path.join(DOWNLOAD_DIR, outName)
@@ -230,6 +259,8 @@ const start = async (key: string, outName: string): Promise<boolean> => {
   })
 
   const pollInterval = 500
+  let lastProgressBytes = 0
+  let lastProgressAt = Date.now()
   try {
     while (true) {
       const s = await tellStatus(gid)
@@ -249,6 +280,16 @@ const start = async (key: string, outName: string): Promise<boolean> => {
         total: totalBytes > 0 ? formatBytes(totalBytes) : 'unknown',
       })
 
+      if (doneBytes > lastProgressBytes) {
+        lastProgressBytes = doneBytes
+        lastProgressAt = Date.now()
+      } else {
+        const now = Date.now()
+        if (now - lastProgressAt > opts.stallTimeoutMs) {
+          throw new Error(`Download stalled for ${(opts.stallTimeoutMs / 1000).toFixed(0)}s`)
+        }
+      }
+
       if (st === 'complete') {
         bar.update(total, {
           speed: '0 B',
@@ -258,14 +299,21 @@ const start = async (key: string, outName: string): Promise<boolean> => {
         })
         bar.stop()
         console.log(`[aria2] Done: ${savePath}`)
-        return true
+        verifyFileIntegrity(savePath, totalBytes > 0 ? totalBytes : undefined)
+        try {
+          await rpcCall('aria2.removeDownloadResult', [gid])
+        } catch {}
+        return
       }
       if (st === 'error' || st === 'removed') {
         bar.stop()
         const msg = s.errorMessage ? ` - ${s.errorMessage}` : ''
         console.error(`Download ${st}${msg}`)
         await debugDumpOnError(gid, url, savePath, key)
-        return false
+        try {
+          await rpcCall('aria2.removeDownloadResult', [gid])
+        } catch {}
+        throw new Error(`aria2 status: ${st}${msg}`)
       }
       await new Promise((r) => setTimeout(r, pollInterval))
     }
@@ -275,8 +323,40 @@ const start = async (key: string, outName: string): Promise<boolean> => {
     try {
       await debugDumpOnError(gid, url, savePath, key)
     } catch {}
-    return false
+    try {
+      await rpcCall('aria2.removeDownloadResult', [gid])
+    } catch {}
+    throw err
   }
+}
+
+const start = async (
+  key: string,
+  outName: string,
+  options: StartOptions = {},
+): Promise<boolean> => {
+  const retries = options.retries ?? 3
+  const backoffMs = options.backoffMs ?? 2000
+  const stallTimeoutMs = options.stallTimeoutMs ?? 120000
+
+  const opts: Required<StartOptions> = { retries, backoffMs, stallTimeoutMs }
+
+  let attempt = 0
+  while (attempt < retries) {
+    attempt++
+    try {
+      await downloadOnce(key, outName, opts)
+      return true
+    } catch (e) {
+      if (attempt >= retries) {
+        throw e
+      }
+      const delay = backoffMs * Math.pow(2, attempt - 1)
+      console.warn(`[aria2] attempt ${attempt} failed, retrying in ${Math.round(delay / 1000)}s...`)
+      await sleep(delay)
+    }
+  }
+  throw new Error('Download failed after retries')
 }
 
 export { start }
