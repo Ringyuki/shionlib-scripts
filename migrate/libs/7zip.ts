@@ -10,7 +10,7 @@ import { stripArchiveSuffix } from '../helpers/text.helper'
 
 const DEFAULT_FORMAT: '7z' | 'zip' = '7z'
 const COMPRESSION_LEVEL = '1'
-const CANDIDATE_BINS = [process.env.SEVEN_ZIP, '7zz', '7z', '7za'].filter(Boolean) as string[]
+const CANDIDATE_BINS = [process.env.SEVEN_ZIP, '7z', '7zz', '7za'].filter(Boolean) as string[]
 const EXTRACT_PASSWORD = process.env.UNZIP_PASSWORD
 
 export type StartOptions =
