@@ -11,6 +11,7 @@ import { stripArchiveSuffix } from '../helpers/text.helper'
 const DEFAULT_FORMAT: '7z' | 'zip' = '7z'
 const COMPRESSION_LEVEL = '1'
 const CANDIDATE_BINS = [process.env.SEVEN_ZIP, '7z', '7zz', '7za'].filter(Boolean) as string[]
+const UNRAR_CANDIDATE_BINS = [process.env.UNRAR, 'unrar'].filter(Boolean) as string[]
 const EXTRACT_PASSWORD = process.env.UNZIP_PASSWORD
 
 export type StartOptions =
@@ -36,6 +37,34 @@ const resolve7zBinary = (): string => {
   throw new Error(
     `7z executable not found. Please install 7-Zip (or 7zz) and ensure it is in PATH, or set the SEVEN_ZIP environment variable to point to the executable.`,
   )
+}
+
+const resolveUnrarBinary = (): string => {
+  for (const bin of UNRAR_CANDIDATE_BINS) {
+    try {
+      const r = spawnSync(bin, ['-?'], { stdio: 'ignore' })
+      if (r.status === 0 || r.status === 1) return bin
+    } catch {}
+  }
+  throw new Error(
+    `unrar executable not found. Please install unrar and ensure it is in PATH, or set the UNRAR environment variable to point to the executable.`,
+  )
+}
+
+const isSplitRarFirstVolume = (archivePath: string): boolean => {
+  const base = path.basename(archivePath)
+  const lower = base.toLowerCase()
+  if (/\.part0*1\.rar$/i.test(lower)) return true
+  if (/\.r00$/i.test(lower)) return true
+  if (/\.rar$/i.test(lower)) {
+    const dir = path.dirname(archivePath)
+    const prefix = base.replace(/\.rar$/i, '')
+    const r00 = path.join(dir, `${prefix}.r00`)
+    try {
+      if (fs.existsSync(r00)) return true
+    } catch {}
+  }
+  return false
 }
 
 const attachProgressParser = (child: ReturnType<typeof spawn>, label: string): Promise<void> => {
@@ -110,6 +139,32 @@ const start = async (options: StartOptions): Promise<string> => {
     const name = stripArchiveSuffix(base)
     const dest = path.resolve(options.destDir ?? path.join(EXTRACT_DIR_BASE, name))
     ensureDir(dest)
+
+    // Prefer unrar for split RAR archives for better compatibility
+    if (isSplitRarFirstVolume(archive)) {
+      let unrarBin: string | null = null
+      try {
+        unrarBin = resolveUnrarBinary()
+      } catch {
+        // fallback to 7z if unrar is not available
+      }
+      if (unrarBin) {
+        const unrarArgs = [
+          'x',
+          EXTRACT_PASSWORD ? `-p${EXTRACT_PASSWORD}` : '-p-',
+          '-o+',
+          '-y',
+          archive,
+          dest,
+        ]
+        console.log(`[unrar] Extract: ${archive}`)
+        console.log(`       -> ${dest}`)
+        const child = spawn(unrarBin, unrarArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
+        await attachProgressParser(child, 'extract')
+        console.log(`[unrar] Extracted -> ${dest}`)
+        return path.basename(dest)
+      }
+    }
 
     const args = [
       'x',
