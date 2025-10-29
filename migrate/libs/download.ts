@@ -326,17 +326,6 @@ const downloadOnce = async (
 ): Promise<void> => {
   ensureDirSync(DOWNLOAD_DIR)
   const url = await getUrl(key)
-  try {
-    const { ok, data } = await checkUrl(url)
-    if (!ok) {
-      throw new SkipDownloadError('URL HEAD check failed', data)
-    }
-  } catch (e: any) {
-    if (e instanceof SkipDownloadError || e?.code === 'URL_CHECK_FAILED') {
-      throw e
-    }
-    throw new SkipDownloadError('URL HEAD request error', { error: String(e?.message || e) })
-  }
   if (!url) {
     console.error(`[aria2] Failed to get URL for key: ${key}`)
     throw new Error('Failed to get URL')
@@ -353,6 +342,17 @@ const downloadOnce = async (
   if (existing) {
     gid = existing.gid
   } else {
+    try {
+      const { ok, data } = await checkUrl(url)
+      if (!ok) {
+        throw new SkipDownloadError('URL HEAD check failed', data)
+      }
+    } catch (e: any) {
+      if (e instanceof SkipDownloadError || e?.code === 'URL_CHECK_FAILED') {
+        throw e
+      }
+      throw new SkipDownloadError('URL HEAD request error', { error: String(e?.message || e) })
+    }
     // Only cleanup local target when no active/waiting task holds it
     prepareTargetForDownload(savePath)
     gid = await addDownload(url, { dir: DOWNLOAD_DIR, out: outName })
@@ -481,6 +481,10 @@ const start = async (
       await downloadOnce(key, outName, opts)
       return true
     } catch (e) {
+      // @ts-ignore
+      if (e?.code === 'URL_CHECK_FAILED') {
+        throw e
+      }
       if (attempt >= retries) {
         throw e
       }
