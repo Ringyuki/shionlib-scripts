@@ -52,9 +52,16 @@ const process = async (file: File) => {
           } catch (err: any) {
             if (err?.code === 'URL_CHECK_FAILED') {
               const reason = err?.reason ?? err?.message ?? 'URL check failed'
+              const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason)
+              console.warn(
+                '[migrate] Skip item due to URL check:',
+                it.o_key,
+                it.o_file_name,
+                reasonStr,
+              )
               updateFileItemStatus(file, it, {
                 status: FileStatus.SKIPPED,
-                skipped_reason: typeof reason === 'string' ? reason : JSON.stringify(reason),
+                skipped_reason: reasonStr,
               })
               break
             }
@@ -66,8 +73,56 @@ const process = async (file: File) => {
       }
     }
 
+    const allSkipped = items.every((it) => it.status === FileStatus.SKIPPED)
+    if (allSkipped) {
+      console.warn('[migrate] Skip group (all items skipped):', game_id, platform)
+      for (const it of items) {
+        console.warn('  -', it.o_file_name, it.skipped_reason || 'unknown')
+      }
+      return
+    }
+
+    const primaryArchivePath = path.join(DOWNLOAD_DIR, primaryName)
+
+    if (isMultipart) {
+      const allPartsExist = items.every((it) => hasFile(path.join(DOWNLOAD_DIR, it.o_file_name)))
+      if (!allPartsExist) {
+        for (const it of items) {
+          if (!hasFile(path.join(DOWNLOAD_DIR, it.o_file_name))) {
+            if (it.status !== FileStatus.SKIPPED)
+              updateFileItemStatus(file, it, {
+                status: FileStatus.SKIPPED,
+                skipped_reason: 'Multipart incomplete after download',
+              })
+          }
+        }
+        console.warn('[migrate] Skip group (multipart incomplete):', game_id, platform)
+        for (const it of items) {
+          const exists = hasFile(path.join(DOWNLOAD_DIR, it.o_file_name))
+          if (!exists)
+            console.warn('  - missing', it.o_file_name, it.skipped_reason || 'missing part')
+        }
+        return
+      }
+    } else {
+      if (!hasFile(primaryArchivePath)) {
+        const it0 = items[0]
+        if (it0 && it0.status !== FileStatus.SKIPPED)
+          updateFileItemStatus(file, it0, {
+            status: FileStatus.SKIPPED,
+            skipped_reason: 'Primary archive missing after download',
+          })
+        console.warn(
+          '[migrate] Skip group (primary archive missing):',
+          game_id,
+          platform,
+          primaryName,
+        )
+        return
+      }
+    }
+
     if (!hasFile(extractedPath)) {
-      const primaryArchivePath = path.join(DOWNLOAD_DIR, primaryName)
       await start7zip({ mode: 'extract', archive: primaryArchivePath })
     }
 
