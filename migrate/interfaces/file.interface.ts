@@ -3,6 +3,7 @@ export enum FileStatus {
   PROCESSING = 1,
   COMPLETED = 2,
   FAILED = 3,
+  SKIPPED = 4,
 }
 
 export interface FileItem {
@@ -17,6 +18,7 @@ export interface FileItem {
 
   game_id: number
   status: FileStatus
+  skipped_reason?: string
 }
 
 export interface File {

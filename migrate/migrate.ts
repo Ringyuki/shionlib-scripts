@@ -1,6 +1,13 @@
 import { start as startDownload } from './libs/download'
 import { start as start7zip } from './libs/7zip'
-import { readFile, deleteFile, hasFile, updateItemInFinalFiles, selectPrimary } from './utils/file'
+import {
+  readFile,
+  deleteFile,
+  hasFile,
+  updateItemInFinalFiles,
+  selectPrimary,
+  isMultipart as isMultipartFile,
+} from './utils/file'
 import { File, FileItem } from './interfaces/file.interface'
 import path from 'path'
 import { uploadFile } from './libs/upload'
@@ -11,6 +18,7 @@ import { FileStatus } from './interfaces/file.interface'
 const process = async (file: File) => {
   const { items, platform, game_id } = file
   if (!items.length) return
+  if (items.every((it) => it.status === FileStatus.SKIPPED)) return
 
   const firstName = items[0].o_file_name
   const extractedName = stripArchiveSuffix(firstName)
@@ -18,6 +26,15 @@ const process = async (file: File) => {
 
   const names = items.map((i) => i.o_file_name)
   const primaryName = selectPrimary(names)
+  const isMultipart = isMultipartFile(names)
+  if (isMultipart && items.length === 0) {
+    for (const it of items)
+      updateFileItemStatus(file, it, {
+        status: FileStatus.SKIPPED,
+        skipped_reason: 'Multipart file but no parts found',
+      })
+    return
+  }
 
   try {
     for (const it of items) updateFileItemStatus(file, it, { status: FileStatus.PROCESSING })
@@ -32,7 +49,15 @@ const process = async (file: File) => {
           try {
             await startDownload(it.o_key, it.o_file_name)
             break
-          } catch (err) {
+          } catch (err: any) {
+            if (err?.code === 'URL_CHECK_FAILED') {
+              const reason = err?.reason ?? err?.message ?? 'URL check failed'
+              updateFileItemStatus(file, it, {
+                status: FileStatus.SKIPPED,
+                skipped_reason: typeof reason === 'string' ? reason : JSON.stringify(reason),
+              })
+              break
+            }
             console.error('[migrate] Failed to download file:', it.o_key, it.o_file_name, err)
             updateFileItemStatus(file, it, { status: FileStatus.FAILED })
             throw err
@@ -85,6 +110,7 @@ const updateFileItemStatus = (file: File, target: FileItem, updates: Partial<Fil
       if (updates.n_file_hash !== undefined) item.n_file_hash = updates.n_file_hash
       if (updates.n_file_content_type !== undefined)
         item.n_file_content_type = updates.n_file_content_type
+      if (updates.skipped_reason !== undefined) item.skipped_reason = updates.skipped_reason
     }
   }
   updateItemInFinalFiles(
@@ -97,6 +123,7 @@ const updateFileItemStatus = (file: File, target: FileItem, updates: Partial<Fil
       if (updates.n_file_hash !== undefined) it.n_file_hash = updates.n_file_hash
       if (updates.n_file_content_type !== undefined)
         it.n_file_content_type = updates.n_file_content_type
+      if (updates.skipped_reason !== undefined) it.skipped_reason = updates.skipped_reason
     },
   )
 }

@@ -183,6 +183,31 @@ const getUrl = async (key: string): Promise<string> => {
   return `${BUCKET1_URL}${key}`
 }
 
+const checkUrl = async (url: string): Promise<{ ok: boolean; data?: any }> => {
+  const res = await fetch(url, { method: 'HEAD' }).then(async (res) => {
+    if (res.ok)
+      return {
+        ok: true,
+      }
+    const data = await res.json()
+    return {
+      ok: false,
+      data,
+    }
+  })
+  return res
+}
+
+class SkipDownloadError extends Error {
+  code = 'URL_CHECK_FAILED'
+  reason?: any
+  constructor(message: string, reason?: any) {
+    super(message)
+    this.name = 'SkipDownloadError'
+    this.reason = reason
+  }
+}
+
 /** ===================================================== */
 const debugDumpOnError = async (gid: string, url: string, savePath: string, key: string) => {
   console.error('\n[aria2][debug] ===== ERROR DIAGNOSTICS BEGIN =====')
@@ -301,6 +326,17 @@ const downloadOnce = async (
 ): Promise<void> => {
   ensureDirSync(DOWNLOAD_DIR)
   const url = await getUrl(key)
+  try {
+    const { ok, data } = await checkUrl(url)
+    if (!ok) {
+      throw new SkipDownloadError('URL HEAD check failed', data)
+    }
+  } catch (e: any) {
+    if (e instanceof SkipDownloadError || e?.code === 'URL_CHECK_FAILED') {
+      throw e
+    }
+    throw new SkipDownloadError('URL HEAD request error', { error: String(e?.message || e) })
+  }
   if (!url) {
     console.error(`[aria2] Failed to get URL for key: ${key}`)
     throw new Error('Failed to get URL')

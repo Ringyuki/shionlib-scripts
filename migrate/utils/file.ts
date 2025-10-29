@@ -37,6 +37,10 @@ const deleteFile = (p: string) => {
   }
 }
 
+const isMultipart = (names: string[]) => {
+  return names.some((n) => /\.(part0*1\.rar|rar\.0*1|7z\.0*1|zip\.0*1)$/i.test(n))
+}
+
 const selectPrimary = (names: string[]): string => {
   const has = (re: RegExp) => names.find((n) => re.test(n))
   return (has(/\.part0*1\.rar$/i) ||
@@ -64,4 +68,12 @@ const updateItemInFinalFiles = (
   }
 }
 
-export { saveFile, readFile, hasFile, deleteFile, updateItemInFinalFiles, selectPrimary }
+export {
+  saveFile,
+  readFile,
+  hasFile,
+  deleteFile,
+  updateItemInFinalFiles,
+  selectPrimary,
+  isMultipart,
+}
