@@ -51,20 +51,9 @@ const resolveUnrarBinary = (): string => {
   )
 }
 
-const isSplitRarFirstVolume = (archivePath: string): boolean => {
-  const base = path.basename(archivePath)
-  const lower = base.toLowerCase()
-  if (/\.part0*1\.rar$/i.test(lower)) return true
-  if (/\.r00$/i.test(lower)) return true
-  if (/\.rar$/i.test(lower)) {
-    const dir = path.dirname(archivePath)
-    const prefix = base.replace(/\.rar$/i, '')
-    const r00 = path.join(dir, `${prefix}.r00`)
-    try {
-      if (fs.existsSync(r00)) return true
-    } catch {}
-  }
-  return false
+const isRarArchive = (archivePath: string): boolean => {
+  const lower = path.basename(archivePath).toLowerCase()
+  return /\.rar$/i.test(lower) || /\.part[0-9]+\.rar$/i.test(lower) || /\.r[0-9]{2}$/i.test(lower)
 }
 
 const attachProgressParser = (child: ReturnType<typeof spawn>, label: string): Promise<void> => {
@@ -140,8 +129,8 @@ const start = async (options: StartOptions): Promise<string> => {
     const dest = path.resolve(options.destDir ?? path.join(EXTRACT_DIR_BASE, name))
     ensureDir(dest)
 
-    // Prefer unrar for split RAR archives for better compatibility
-    if (isSplitRarFirstVolume(archive)) {
+    // Prefer unrar for any RAR archive (single or multi-part)
+    if (isRarArchive(archive)) {
       let unrarBin: string | null = null
       try {
         unrarBin = resolveUnrarBinary()
