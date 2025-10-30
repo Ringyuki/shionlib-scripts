@@ -38,7 +38,14 @@ const deleteFile = (p: string) => {
 }
 
 const isMultipart = (names: string[]) => {
-  return names.some((n) => /\.(part0*1\.rar|rar\.0*1|7z\.0*1|zip\.0*1)$/i.test(n))
+  // Recognize multi-part by presence of ANY volume indicator, not only the first one
+  // Examples: name.7z.002, name.part2.rar, name.r01, name.z01
+  const patterns = [
+    /\.(7z|zip|rar)\.[0-9]{3,}$/i, // name.7z.002 / name.zip.003 / name.rar.004
+    /\.part[0-9]+\.rar$/i, // name.part2.rar
+    /\.[rz][0-9]{2}$/i, // name.r01 / name.z01
+  ]
+  return names.some((n) => patterns.some((re) => re.test(n)))
 }
 
 const selectPrimary = (names: string[]): string => {

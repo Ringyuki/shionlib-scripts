@@ -85,6 +85,45 @@ const process = async (file: File) => {
     const primaryArchivePath = path.join(DOWNLOAD_DIR, primaryName)
 
     if (isMultipart) {
+      // Guard: missing first volume (e.g. .7z.001 / .part1.rar / .rar / .z01)
+      const hasFirstVolume = names.some(
+        (n) =>
+          /\.part0*1\.rar$/i.test(n) ||
+          /\.(7z|zip)\.0*1$/i.test(n) ||
+          /\.rar$/i.test(n) ||
+          /\.z0*1$/i.test(n),
+      )
+      if (!hasFirstVolume) {
+        for (const it of items) {
+          if (it.status !== FileStatus.SKIPPED)
+            updateFileItemStatus(file, it, {
+              status: FileStatus.SKIPPED,
+              skipped_reason: 'Multipart first volume missing',
+            })
+        }
+        console.warn('[migrate] Skip group (multipart missing first volume):', game_id, platform)
+        return
+      }
+
+      // Guard: only-first-volume case (e.g. only .001 or only .part1.rar with no subsequent parts)
+      const hasSubsequentVolume = names.some(
+        (n) =>
+          /\.(7z|zip)\.0*2$/i.test(n) || // .002 for 7z/zip
+          /\.part0*2\.rar$/i.test(n) || // .part2.rar
+          /\.[rz]0*1$/i.test(n), // .r01 or .z01
+      )
+      if (!hasSubsequentVolume) {
+        for (const it of items) {
+          if (it.status !== FileStatus.SKIPPED)
+            updateFileItemStatus(file, it, {
+              status: FileStatus.SKIPPED,
+              skipped_reason: 'Multipart subsequent volume missing (only first volume present)',
+            })
+        }
+        console.warn('[migrate] Skip group (multipart only first volume):', game_id, platform)
+        return
+      }
+
       const allPartsExist = items.every((it) => hasFile(path.join(DOWNLOAD_DIR, it.o_file_name)))
       if (!allPartsExist) {
         for (const it of items) {
