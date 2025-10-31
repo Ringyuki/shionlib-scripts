@@ -162,7 +162,24 @@ const process = async (file: File) => {
     }
 
     if (!hasFile(extractedPath)) {
-      await start7zip({ mode: 'extract', archive: primaryArchivePath })
+      try {
+        await start7zip({ mode: 'extract', archive: primaryArchivePath })
+      } catch (e: any) {
+        const msg = String(e?.message || e)
+        if (/Extract password error/i.test(msg)) {
+          console.warn('[migrate] Skip group (extract password error):', game_id, platform)
+          for (const it of items) {
+            if (it.status !== FileStatus.SKIPPED)
+              updateFileItemStatus(file, it, {
+                status: FileStatus.SKIPPED,
+                skipped_reason: 'Extract password error',
+              })
+          }
+          if (hasFile(extractedPath)) deleteFile(extractedPath)
+          return
+        }
+        throw e
+      }
     }
 
     const compressedOut = await start7zip({ mode: 'compress', src: extractedPath })
