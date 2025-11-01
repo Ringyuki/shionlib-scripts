@@ -184,18 +184,27 @@ const getUrl = async (key: string): Promise<string> => {
 }
 
 const checkUrl = async (url: string): Promise<{ ok: boolean; data?: any }> => {
-  const res = await fetch(url, { method: 'HEAD' }).then(async (res) => {
-    if (res.ok)
-      return {
-        ok: true,
+  while (true) {
+    try {
+      const res = await fetch(url, { method: 'HEAD' })
+      // If rate limited, wait and retry forever
+      if (res.status === 429) {
+        console.warn(`[aria2] HEAD 429 received, waiting 60s and retrying...`)
+        await new Promise((r) => setTimeout(r, 60000))
+        continue
       }
-    const data = await res.json()
-    return {
-      ok: false,
-      data,
+      if (res.ok) return { ok: true }
+      let data: any = null
+      try {
+        data = await res.json()
+      } catch {
+        data = { status: res.status, statusText: res.statusText }
+      }
+      return { ok: false, data }
+    } catch (e) {
+      throw e
     }
-  })
-  return res
+  }
 }
 
 class SkipDownloadError extends Error {

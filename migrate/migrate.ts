@@ -15,10 +15,14 @@ import { stripArchiveSuffix } from './helpers/text.helper'
 import { DOWNLOAD_DIR, EXTRACTED_DIR, COMPRESSED_DIR } from './constants/dirs'
 import { FileStatus } from './interfaces/file.interface'
 
-const process = async (file: File) => {
+const processMigrate = async (file: File) => {
   const { items, platform, game_id } = file
   if (!items.length) return
-  if (items.every((it) => it.status === FileStatus.SKIPPED)) return
+  if (
+    items.every((it) => it.status === FileStatus.SKIPPED) &&
+    process.env.PROCESS_SKIPPED !== 'true'
+  )
+    return
 
   const firstName = items[0].o_file_name
   const extractedName = stripArchiveSuffix(firstName)
@@ -246,7 +250,7 @@ const main = async () => {
     if (isCompleted) {
       continue
     }
-    await process(file)
+    await processMigrate(file)
   }
 }
 
