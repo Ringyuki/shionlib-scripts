@@ -68,6 +68,26 @@ const processMigrate = async (file: File) => {
         return
       }
 
+      // Only-first-volume (e.g. only .001 or only .part1.rar)
+      const hasSubsequentVolumePre = names.some(
+        (n) =>
+          /(\.(7z|zip)\.0*2)$/i.test(n) || // .002 for 7z/zip
+          /\.part0*2\.rar$/i.test(n) || // .part2.rar
+          /\.[rz]0*1$/i.test(n), // .r01 or .z01
+      )
+      if (!hasSubsequentVolumePre) {
+        for (const it of items) {
+          if (it.status !== FileStatus.SKIPPED)
+            updateFileItemStatus(file, it, {
+              status: FileStatus.SKIPPED,
+              skipped_reason:
+                'Multipart subsequent volume missing (only first volume present - pre)',
+            })
+        }
+        console.warn('[migrate] Skip group (multipart only first volume - pre):', game_id, platform)
+        return
+      }
+
       // Detect missing gaps by names (e.g., only 001 and 003)
       const gaps = detectMultipartMissing(names)
       if (gaps.missingNumbers.length > 0) {
