@@ -7,6 +7,7 @@ import {
   updateItemInFinalFiles,
   selectPrimary,
   isMultipart as isMultipartFile,
+  detectMultipartMissing,
 } from './utils/file'
 import { File, FileItem } from './interfaces/file.interface'
 import path from 'path'
@@ -41,6 +42,45 @@ const processMigrate = async (file: File) => {
   }
 
   try {
+    // Pre-download guards for multipart completeness by names
+    if (isMultipart) {
+      // First volume must exist
+      const hasFirstVolume = names.some(
+        (n) =>
+          /\.part0*1\.rar$/i.test(n) ||
+          /\.(7z|zip)\.0*1$/i.test(n) ||
+          /\.rar$/i.test(n) ||
+          /\.z0*1$/i.test(n),
+      )
+      if (!hasFirstVolume) {
+        for (const it of items) {
+          if (it.status !== FileStatus.SKIPPED)
+            updateFileItemStatus(file, it, {
+              status: FileStatus.SKIPPED,
+              skipped_reason: 'Multipart first volume missing (pre-download)',
+            })
+        }
+        console.warn(
+          '[migrate] Skip group (multipart missing first volume - pre):',
+          game_id,
+          platform,
+        )
+        return
+      }
+
+      // Detect missing gaps by names (e.g., only 001 and 003)
+      const gaps = detectMultipartMissing(names)
+      if (gaps.missingNumbers.length > 0) {
+        const reason = `Multipart incomplete by names before download: missing ${gaps.missingNumbers.join(',')}`
+        for (const it of items) {
+          if (it.status !== FileStatus.SKIPPED)
+            updateFileItemStatus(file, it, { status: FileStatus.SKIPPED, skipped_reason: reason })
+        }
+        console.warn('[migrate] Skip group (multipart gaps - pre):', game_id, platform, reason)
+        return
+      }
+    }
+
     for (const it of items) updateFileItemStatus(file, it, { status: FileStatus.PROCESSING })
 
     for (const it of items) {

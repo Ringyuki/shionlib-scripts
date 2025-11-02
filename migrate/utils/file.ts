@@ -56,6 +56,54 @@ const selectPrimary = (names: string[]): string => {
     names.slice().sort((a, b) => a.localeCompare(b))[0]) as string
 }
 
+// Detect missing multipart volumes purely by names (pre-download)
+// Supported schemes:
+//  - name.(7z|zip|rar).001, .002, ... => expect 001..max contiguous
+//  - name.part1.rar, name.part2.rar, ... => expect 1..max contiguous
+//  - name.rar + name.r00, name.r01, ... => expect r00..r(max) contiguous (if any rNN present)
+const detectMultipartMissing = (
+  names: string[],
+): { scheme: 'sevenZipStyle' | 'rarPartStyle' | 'rStyle' | null; missingNumbers: number[] } => {
+  const lower = names.map((n) => n.toLowerCase())
+
+  // 1) .partN.rar
+  const partMatches = lower.map((n) => ({ n, m: n.match(/\.part(\d+)\.rar$/i) })).filter((x) => x.m)
+  if (partMatches.length > 0) {
+    const nums = partMatches.map((x) => parseInt((x!.m as RegExpMatchArray)[1], 10))
+    const max = Math.max(...nums)
+    const set = new Set(nums)
+    const missing: number[] = []
+    for (let i = 1; i <= max; i++) if (!set.has(i)) missing.push(i)
+    return { scheme: 'rarPartStyle', missingNumbers: missing }
+  }
+
+  // 2) .(7z|zip|rar).001 style
+  const volMatches = lower
+    .map((n) => ({ n, m: n.match(/\.(7z|zip|rar)\.(\d{3,})$/i) }))
+    .filter((x) => x.m)
+  if (volMatches.length > 0) {
+    const nums = volMatches.map((x) => parseInt((x!.m as RegExpMatchArray)[2], 10))
+    const max = Math.max(...nums)
+    const set = new Set(nums)
+    const missing: number[] = []
+    for (let i = 1; i <= max; i++) if (!set.has(i)) missing.push(i)
+    return { scheme: 'sevenZipStyle', missingNumbers: missing }
+  }
+
+  // 3) .rar + .rNN or .zNN style
+  const rMatches = lower.map((n) => ({ n, m: n.match(/\.[rz](\d{2})$/i) })).filter((x) => x.m)
+  if (rMatches.length > 0) {
+    const nums = rMatches.map((x) => parseInt((x!.m as RegExpMatchArray)[1], 10))
+    const max = Math.max(...nums)
+    const set = new Set(nums)
+    const missing: number[] = []
+    for (let i = 0; i <= max; i++) if (!set.has(i)) missing.push(i)
+    return { scheme: 'rStyle', missingNumbers: missing }
+  }
+
+  return { scheme: null, missingNumbers: [] }
+}
+
 const updateItemInFinalFiles = (
   match: (item: FileItem) => boolean,
   updater: (item: FileItem) => void,
@@ -83,4 +131,5 @@ export {
   updateItemInFinalFiles,
   selectPrimary,
   isMultipart,
+  detectMultipartMissing,
 }
