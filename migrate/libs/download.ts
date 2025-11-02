@@ -179,17 +179,20 @@ const getUrl = async (key: string): Promise<string> => {
   while (true) {
     try {
       const res = await fetch(`${BUCKET1_URL}/${key}`, { method: 'HEAD' })
-      if (res.status === 429) {
-        console.warn('[aria2] BUCKET1 HEAD 429, waiting 60s and retrying BUCKET1...')
-        await new Promise((r) => setTimeout(r, 60000))
-        continue
-      }
       if (res.ok) return `${BUCKET1_URL}${key}`
-      // non-429, non-ok: fallback to BUCKET2
-      return `${BUCKET2_URL}${key}`
-    } catch {
-      // network error while checking BUCKET1: fallback to BUCKET2
-      return `${BUCKET2_URL}${key}`
+      // Only fallback to BUCKET2 for 404 or 5xx
+      if (res.status === 404 || (res.status >= 500 && res.status <= 599)) {
+        return `${BUCKET2_URL}${key}`
+      }
+      console.warn(
+        `[aria2] BUCKET1 HEAD ${res.status} ${res.statusText}, waiting 60s and retrying BUCKET1...`,
+      )
+      await new Promise((r) => setTimeout(r, 60000))
+      continue
+    } catch (e) {
+      console.warn('[aria2] BUCKET1 HEAD error, waiting 60s and retrying BUCKET1...', e)
+      await new Promise((r) => setTimeout(r, 60000))
+      continue
     }
   }
 }
