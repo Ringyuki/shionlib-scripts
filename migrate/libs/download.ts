@@ -175,7 +175,8 @@ const ensureDirSync = (dir: string) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 }
 
-const getUrl = async (key: string): Promise<string> => {
+const getUrl = async (key_raw: string): Promise<string> => {
+  const key = encodeURIComponent(key_raw)
   while (true) {
     try {
       const res = await fetch(`${BUCKET1_URL}/${key}`, { method: 'HEAD' })
