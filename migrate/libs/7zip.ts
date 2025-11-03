@@ -89,7 +89,7 @@ const attachProgressParser = (child: ReturnType<typeof spawn>, label: string): P
       errBuf += d
       if (rejected) return
       if (
-        /wrong password|password is incorrect|can not open encrypted archive|data error in encrypted file/i.test(
+        /wrong password|password is incorrect|incorrect password|can not open encrypted archive|data error in encrypted file/i.test(
           d,
         )
       ) {
